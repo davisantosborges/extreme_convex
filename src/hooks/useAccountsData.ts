@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, usePaginatedQuery } from 'convex/react';
 import { getAccountApi } from './useAccountsApi';
 import type { AccountTableName } from '../../convex/lib/accountTypes';
-import type { Account, StatusFilter, SearchType, PerformanceMetrics } from '@/types/account';
+import type { Account, StatusFilter, SearchType, PerformanceMetrics, AddressSearchFields } from '@/types/account';
+import { EMPTY_ADDRESS_SEARCH } from '@/types/account';
 import type { SortingState } from '@tanstack/react-table';
 
 const ITEMS_PER_PAGE = 50;
@@ -39,6 +40,11 @@ interface UseAccountsDataReturn {
   searchType: SearchType;
   setSearchType: (type: SearchType) => void;
 
+  // Address search fields
+  addressFields: AddressSearchFields;
+  setAddressFields: React.Dispatch<React.SetStateAction<AddressSearchFields>>;
+  updateAddressField: (field: keyof AddressSearchFields, value: string) => void;
+
   // Sorting
   sorting: SortingState;
   setSorting: React.Dispatch<React.SetStateAction<SortingState>>;
@@ -56,6 +62,12 @@ export function useAccountsData(): UseAccountsDataReturn {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState<SearchType>('name');
+  const [addressFields, setAddressFields] = useState<AddressSearchFields>(EMPTY_ADDRESS_SEARCH);
+
+  // Helper to update a single address field
+  const updateAddressField = useCallback((field: keyof AddressSearchFields, value: string) => {
+    setAddressFields(prev => ({ ...prev, [field]: value }));
+  }, []);
 
   // Table sorting
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -70,7 +82,7 @@ export function useAccountsData(): UseAccountsDataReturn {
   // Set query start time when dependencies change
   useEffect(() => {
     queryStartTime.current = performance.now();
-  }, [statusFilter, searchQuery, searchType, selectedTable]);
+  }, [statusFilter, searchQuery, searchType, selectedTable, addressFields]);
 
   // Paginated list query (browse mode)
   const paginatedAccounts = usePaginatedQuery(
@@ -88,18 +100,32 @@ export function useAccountsData(): UseAccountsDataReturn {
     { initialNumItems: ITEMS_PER_PAGE }
   );
 
+  // Check if any address field has a value
+  const hasAddressSearch = searchType === 'address' && (
+    addressFields.street.trim().length > 0 ||
+    addressFields.city.trim().length > 0 ||
+    addressFields.state.trim().length > 0 ||
+    addressFields.zipCode.trim().length > 0
+  );
+
   // Address search query (non-paginated, max 100)
   const searchResultsByAddress = useQuery(
     accountApi.searchByAddress,
-    searchQuery.trim().length > 0 && searchType === 'address'
-      ? { searchQuery, statusFilter }
+    hasAddressSearch
+      ? {
+          street: addressFields.street || undefined,
+          city: addressFields.city || undefined,
+          state: addressFields.state || undefined,
+          zipCode: addressFields.zipCode || undefined,
+          statusFilter,
+        }
       : 'skip'
   );
 
   // Determine search mode
-  const isSearchMode = searchQuery.trim().length > 0;
-  const isNameSearch = isSearchMode && searchType === 'name';
-  const isAddressSearch = isSearchMode && searchType === 'address';
+  const isSearchMode = searchQuery.trim().length > 0 || hasAddressSearch;
+  const isNameSearch = searchQuery.trim().length > 0 && searchType === 'name';
+  const isAddressSearch = hasAddressSearch;
 
   // Select the appropriate paginated query
   const activePaginatedQuery = isNameSearch ? paginatedNameSearch : paginatedAccounts;
@@ -182,6 +208,11 @@ export function useAccountsData(): UseAccountsDataReturn {
     setSearchQuery,
     searchType,
     setSearchType,
+
+    // Address search fields
+    addressFields,
+    setAddressFields,
+    updateAddressField,
 
     // Sorting
     sorting,

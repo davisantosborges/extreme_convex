@@ -24,4 +24,18 @@ export interface PerformanceMetrics {
 
 export type SearchType = 'name' | 'address';
 
+export interface AddressSearchFields {
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+}
+
+export const EMPTY_ADDRESS_SEARCH: AddressSearchFields = {
+  street: '',
+  city: '',
+  state: '',
+  zipCode: '',
+};
+
 export const STATUS_OPTIONS: AccountStatus[] = ['active', 'inactive', 'pending', 'suspended', 'closed'];

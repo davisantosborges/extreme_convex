@@ -25,8 +25,16 @@ export const search = query({
 
 export const searchByAddress = query({
     args: {
-        searchQuery: v.string(),
+        street: v.optional(v.string()),
+        city: v.optional(v.string()),
+        state: v.optional(v.string()),
+        zipCode: v.optional(v.string()),
         statusFilter: statusValidator,
     },
-    handler: (ctx, args) => searchAccountsByAddress(ctx, TABLE_NAME, args.searchQuery, args.statusFilter),
+    handler: (ctx, args) => searchAccountsByAddress(ctx, TABLE_NAME, {
+        street: args.street,
+        city: args.city,
+        state: args.state,
+        zipCode: args.zipCode,
+    }, args.statusFilter),
 });

@@ -56,79 +56,109 @@ export async function searchAccountsByName(
 }
 
 /**
- * Search by address (street, city, state, or ZIP) - returns max 100 results
+ * Search by address fields (street, city, state, ZIP) with AND logic
+ * Each non-empty field narrows down results
  */
 export async function searchAccountsByAddress(
     ctx: QueryCtx,
     tableName: AccountTableName,
-    searchQuery: string,
+    addressFields: {
+        street?: string;
+        city?: string;
+        state?: string;
+        zipCode?: string;
+    },
     statusFilter: AccountStatus | undefined
 ): Promise<AccountDoc[]> {
-    if (!searchQuery || searchQuery.trim().length === 0) {
+    const { street, city, state, zipCode } = addressFields;
+
+    // Check if any field has a value
+    const hasStreet = street && street.trim().length > 0;
+    const hasCity = city && city.trim().length > 0;
+    const hasState = state && state.trim().length > 0;
+    const hasZip = zipCode && zipCode.trim().length > 0;
+
+    if (!hasStreet && !hasCity && !hasState && !hasZip) {
         return [];
     }
 
-    const trimmedQuery = searchQuery.trim();
+    // Start with the most specific non-empty field to get initial results
+    let results: AccountDoc[] = [];
 
-    // Search across city, state, and street indexes in parallel
-    const [cityResults, stateResults, streetResults] = await Promise.all([
-        ctx.db
-            .query(tableName as TableNames)
-            .withSearchIndex("search_city", (q) => {
-                let search = q.search("address.city", trimmedQuery);
-                if (statusFilter) {
-                    search = search.eq("status", statusFilter);
-                }
-                return search;
-            })
-            .take(100),
-        ctx.db
-            .query(tableName as TableNames)
-            .withSearchIndex("search_state", (q) => {
-                let search = q.search("address.state", trimmedQuery);
-                if (statusFilter) {
-                    search = search.eq("status", statusFilter);
-                }
-                return search;
-            })
-            .take(100),
-        ctx.db
-            .query(tableName as TableNames)
-            .withSearchIndex("search_street", (q) => {
-                let search = q.search("address.street", trimmedQuery);
-                if (statusFilter) {
-                    search = search.eq("status", statusFilter);
-                }
-                return search;
-            })
-            .take(100),
-    ]) as [AccountDoc[], AccountDoc[], AccountDoc[]];
-
-    // Combine results and remove duplicates based on _id
-    const allResults = [...cityResults, ...stateResults, ...streetResults];
-    const uniqueResults = Array.from(
-        new Map(allResults.map((account) => [account._id, account])).values()
-    );
-
-    // Check if the query looks like a ZIP code (5 digits)
-    if (/^\d{5}$/.test(trimmedQuery)) {
+    // Priority: ZIP (exact match) > Street > City > State
+    if (hasZip) {
         const zipQuery = ctx.db
             .query(tableName as TableNames)
-            .withIndex("by_zip", (q) => q.eq("address.zipCode", trimmedQuery));
+            .withIndex("by_zip", (q) => q.eq("address.zipCode", zipCode!.trim()));
+        results = await zipQuery.take(500) as AccountDoc[];
 
-        const zipMatches = await zipQuery.take(100) as AccountDoc[];
-        const filteredZip = statusFilter
-            ? zipMatches.filter((account) => account.status === statusFilter)
-            : zipMatches;
+        // Apply status filter
+        if (statusFilter) {
+            results = results.filter((account) => account.status === statusFilter);
+        }
+    } else if (hasStreet) {
+        results = await ctx.db
+            .query(tableName as TableNames)
+            .withSearchIndex("search_street", (q) => {
+                let search = q.search("address.street", street!.trim());
+                if (statusFilter) {
+                    search = search.eq("status", statusFilter);
+                }
+                return search;
+            })
+            .take(500) as AccountDoc[];
+    } else if (hasCity) {
+        results = await ctx.db
+            .query(tableName as TableNames)
+            .withSearchIndex("search_city", (q) => {
+                let search = q.search("address.city", city!.trim());
+                if (statusFilter) {
+                    search = search.eq("status", statusFilter);
+                }
+                return search;
+            })
+            .take(500) as AccountDoc[];
+    } else if (hasState) {
+        results = await ctx.db
+            .query(tableName as TableNames)
+            .withSearchIndex("search_state", (q) => {
+                let search = q.search("address.state", state!.trim());
+                if (statusFilter) {
+                    search = search.eq("status", statusFilter);
+                }
+                return search;
+            })
+            .take(500) as AccountDoc[];
+    }
 
-        // Add ZIP matches to unique results
-        filteredZip.forEach((account) => {
-            if (!uniqueResults.find((r) => r._id === account._id)) {
-                uniqueResults.push(account);
-            }
-        });
+    // Now filter results by remaining fields (AND logic)
+    if (hasStreet && !hasZip) {
+        // Street was primary, no additional street filter needed
+    } else if (hasStreet) {
+        const streetLower = street!.trim().toLowerCase();
+        results = results.filter((account) =>
+            account.address.street.toLowerCase().includes(streetLower)
+        );
+    }
+
+    if (hasCity && !(hasCity && !hasStreet && !hasZip)) {
+        const cityLower = city!.trim().toLowerCase();
+        results = results.filter((account) =>
+            account.address.city.toLowerCase().includes(cityLower)
+        );
+    }
+
+    if (hasState && !(hasState && !hasStreet && !hasCity && !hasZip)) {
+        const stateLower = state!.trim().toLowerCase();
+        results = results.filter((account) =>
+            account.address.state.toLowerCase().includes(stateLower)
+        );
+    }
+
+    if (hasZip && results.length > 0) {
+        // ZIP was exact match, already filtered
     }
 
     // Limit to 100 results
-    return uniqueResults.slice(0, 100);
+    return results.slice(0, 100);
 }

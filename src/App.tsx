@@ -26,6 +26,8 @@ function AppContent() {
     setSearchQuery,
     searchType,
     setSearchType,
+    addressFields,
+    updateAddressField,
     sorting,
     setSorting,
     metrics,
@@ -47,6 +49,8 @@ function AppContent() {
             onSearchChange={setSearchQuery}
             searchType={searchType}
             onSearchTypeChange={setSearchType}
+            addressFields={addressFields}
+            onAddressFieldChange={updateAddressField}
           />
           <StatusFilters
             statusFilter={statusFilter}
